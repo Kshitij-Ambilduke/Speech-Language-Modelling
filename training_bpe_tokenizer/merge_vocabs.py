@@ -1,10 +1,11 @@
 # import os
 # os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
 
-from itertools import count, repeat
-from sentencepiece import sentencepiece_model_pb2 as sp_pb2_model
-import sentencepiece as spm
 import argparse
+from itertools import count, repeat
+
+import sentencepiece as spm
+from sentencepiece import sentencepiece_model_pb2 as sp_pb2_model
 
 
 def load_model(path):
@@ -23,8 +24,8 @@ def create_piece(string, score=0):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--original', default=None, type=str)  # llama
-    parser.add_argument('--new', nargs="+")
+    parser.add_argument("--original", default=None, type=str)  # llama
+    parser.add_argument("--new", nargs="+")
     parser.add_argument("--model_prefix", required=True)
     parser.add_argument("--scoring", default="bpe", choices=["bpe", "none"])
     args = parser.parse_args()
