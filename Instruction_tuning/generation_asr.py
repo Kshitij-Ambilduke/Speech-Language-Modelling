@@ -1,25 +1,29 @@
-from pathlib import Path
 import sys
-from typing import Iterable, List, Union, Dict
+from pathlib import Path
+from typing import Dict, Iterable, List, Union
+
+
 PathInput = Union[str, Path]
-from jsonargparse import CLI
-import tqdm
-from transformers.models.llama.modeling_llama import LlamaDecoderLayer
 import pandas as pd
 import torch
-from peft import PeftModel
+import tqdm
 import transformers
-from transformers import LlamaForCausalLM, AutoTokenizer, AutoModelForCausalLM
+from evaluate import load
+from jsonargparse import CLI
+from peft import PeftModel
+from transformers import AutoModelForCausalLM, AutoTokenizer, LlamaForCausalLM
+from transformers.models.llama.modeling_llama import LlamaDecoderLayer
 from whisper_normalizer.english import EnglishTextNormalizer
 
-from evaluate import load
-wer=load('wer')
+
+wer = load("wer")
 
 IGNORE_INDEX = -100
 DEFAULT_PAD_TOKEN = "<PAD>"
 DEFAULT_EOS_TOKEN = "</s>"
 DEFAULT_BOS_TOKEN = "<s>"
 DEFAULT_UNK_TOKEN = "<unk>"
+
 
 def generate(
     base_model: str = "",
@@ -37,7 +41,7 @@ def generate(
     head: int = None,
     load_8bit: bool = False,
     return_output: bool = True,
-    tokenizer_path: str = "/home/kshitij/LLAMA/instruction_tuning_codebase/TOKENIZERSS/tokenizer_used4training_2000clusters"
+    tokenizer_path: str = "/home/kshitij/LLAMA/instruction_tuning_codebase/TOKENIZERSS/tokenizer_used4training_2000clusters",
 ):
     """
     Generation script adapted from alpaca-lora
@@ -45,17 +49,17 @@ def generate(
     """
     torch.manual_seed(torch_seed)
     print(lora_path)
- 
+
     prompts_df = pd.read_json(data_path)
 
-    gt = prompts_df['output'].to_list()#[0:110]
-    prompts = prompts_df["instruction"].to_list()#[0:110]
+    gt = prompts_df["output"].to_list()  # [0:110]
+    prompts = prompts_df["instruction"].to_list()  # [0:110]
 
     if head is not None:
         prompts = prompts[:head]
 
-    tokenizer = transformers.AutoTokenizer.from_pretrained(tokenizer_path , legacy=False, use_fast=True)
-    
+    tokenizer = transformers.AutoTokenizer.from_pretrained(tokenizer_path, legacy=False, use_fast=True)
+
     model = AutoModelForCausalLM.from_pretrained(
         base_model,
         load_in_8bit=load_8bit,
@@ -64,11 +68,10 @@ def generate(
         trust_remote_code=True,
     )
     print(model)
-    
-    print("Length of tokenizer: ",len(tokenizer))
 
+    print("Length of tokenizer: ", len(tokenizer))
 
-    if lora_path!="":
+    if lora_path != "":
         print("Loading LoRA checkpoint")
         model = PeftModel.from_pretrained(
             model,
@@ -78,7 +81,6 @@ def generate(
         )
         print("Done!!!")
 
-        
     tokenizer.pad_token_id = tokenizer.eos_token_id
     model.config.pad_token_id = tokenizer.pad_token_id
     model.config.eos_token_id = tokenizer.eos_token_id
@@ -86,7 +88,7 @@ def generate(
 
     if not load_8bit:
         model.half()  # seems to fix bugs for some users.
-        
+
     model.eval()
     if torch.__version__ >= "2" and sys.platform != "win32":
         model = torch.compile(model)
@@ -101,7 +103,9 @@ def generate(
         batch = prompts[i : i + batch_size]
         with torch.no_grad():
             inputs = tokenizer.batch_encode_plus(
-                batch, padding="longest", return_tensors="pt",
+                batch,
+                padding="longest",
+                return_tensors="pt",
                 return_token_type_ids=None,
             ).to("cuda")
             input_length = inputs.input_ids.shape[1]
@@ -116,13 +120,10 @@ def generate(
                 # min_new_tokens=2
             )
 
-        generated.extend(
-            tokenizer.batch_decode(output[:, input_length:],skip_special_tokens=True)
-        )
+        generated.extend(tokenizer.batch_decode(output[:, input_length:], skip_special_tokens=True))
 
     write_lines(Path(output_path), generated, escape_newline=True)
     return generated, gt, lora_path
-
 
 
 def write_lines(
@@ -147,19 +148,17 @@ def write_lines(
         f.writelines((f"{l}\n" for l in lines))
 
 
-
 if __name__ == "__main__":
     generated, gt, lora_path = CLI([generate], as_positional=False)
     english_normalizer = EnglishTextNormalizer()
 
     for i in range(len(generated)):
         generated[i] = generated[i].strip()
-        generated[i] = english_normalizer(generated[i])#.translate(str.maketrans ('', '', string.punctuation))
+        generated[i] = english_normalizer(generated[i])  # .translate(str.maketrans ('', '', string.punctuation))
 
     for i in range(len(gt)):
         gt[i] = gt[i].strip()
-        gt[i] = english_normalizer(gt[i])#.translate (str.maketrans('', '', string.punctuation))
-
+        gt[i] = english_normalizer(gt[i])  # .translate (str.maketrans('', '', string.punctuation))
 
     results = wer.compute(predictions=generated, references=gt)
     print("==================================================")

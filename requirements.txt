@@ -1,0 +1,10 @@
+deepspeed==0.14.2
+evaluate==0.4.2
+jsonargparse==4.28.0
+pandas==2.2.2
+peft==0.10.0
+sentencepiece==0.2.0
+torch==2.3.0
+tqdm==4.65.0
+transformers==4.40.1
+whisper_normalizer==0.0.8

@@ -6,8 +6,9 @@ the llama tokenizer).
 """
 
 import argparse
-import transformers
+
 import torch
+import transformers
 from torch.distributions.multivariate_normal import MultivariateNormal
 from transformers import LlamaForCausalLM, LlamaTokenizer
 
@@ -33,7 +34,7 @@ def main(args):
     new_vocab_size = len(new_tokenizer)
 
     assert new_vocab_size > orig_vocab_size
-    
+
     # this handles both input and output embeddings
     model.resize_token_embeddings(new_vocab_size, pad_to_multiple_of=args.pad_multiple)
 

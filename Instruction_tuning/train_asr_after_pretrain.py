@@ -13,42 +13,28 @@
 #    limitations under the License.
 
 import copy
-from peft import PeftModel
-import sys
-import logging
-from torch.utils.data import DataLoader
-import os
-import re
-import pickle
-from pathlib import Path
-from tqdm import tqdm
-
-import shutil
-from dataclasses import dataclass, field
-import json
 import io
-from typing import List, Dict, Optional, Sequence
-
-import torch
-from torch.cuda.amp import autocast
-
-import transformers
-
-from torch.utils.data import Dataset
-from transformers import Trainer
-
-from peft import (
-    LoraConfig,
-    get_peft_model,
-    get_peft_model_state_dict,
-    prepare_model_for_int8_training,
-)
+import json
+import logging
+import os
+import pickle
+import re
+import shutil
+import sys
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Dict, List, Optional, Sequence
 
 import deepspeed
-from deepspeed.utils.zero_to_fp32 import (
-    get_fp32_state_dict_from_zero_checkpoint,
-)
-from peft import get_peft_model_state_dict
+import torch
+import transformers
+from deepspeed.utils.zero_to_fp32 import get_fp32_state_dict_from_zero_checkpoint
+from peft import get_peft_model, get_peft_model_state_dict, LoraConfig, PeftModel, prepare_model_for_int8_training
+from torch.cuda.amp import autocast
+from torch.utils.data import DataLoader, Dataset
+from tqdm import tqdm
+from transformers import Trainer
+
 
 os.environ["WANDB_PROJECT"] = "TinyLLaMA-continued-pretraining"
 os.environ["WANDB_ENTITY"] = "hajmola"
@@ -58,7 +44,6 @@ DEFAULT_PAD_TOKEN = "[PAD]"
 DEFAULT_EOS_TOKEN = "</s>"
 DEFAULT_BOS_TOKEN = "<s>"
 DEFAULT_UNK_TOKEN = "<unk>"
-
 
 
 @dataclass
@@ -74,18 +59,13 @@ class ModelArguments:
 
 @dataclass
 class DataArguments:
-    data_path: str = field(
-        default=None, metadata={"help": "Path to the training data."}
-    )
-    clean_validation_data_path: str = field(
-        default=None, metadata={"help": "Path to the Validation data."}
-    )
+    data_path: str = field(default=None, metadata={"help": "Path to the training data."})
+    clean_validation_data_path: str = field(default=None, metadata={"help": "Path to the Validation data."})
     tokenizer_path: str = field(
         default="/home/kshitij/LLAMA/model_weights/huggingface", metadata={"help": "Path to tokenizer"}
     )
-    trans_validation_data_path: str = field(
-        default=None, metadata={"help": "Path to the Validation data."}
-    )
+    trans_validation_data_path: str = field(default=None, metadata={"help": "Path to the Validation data."})
+
 
 @dataclass
 class TrainingArguments(transformers.TrainingArguments):
@@ -94,16 +74,12 @@ class TrainingArguments(transformers.TrainingArguments):
     optim: str = field(default="adamw_torch")
     model_max_length: int = field(
         default=2048,
-        metadata={
-            "help": "Maximum sequence length. Sequences will be right padded (and possibly truncated)."
-        },
+        metadata={"help": "Maximum sequence length. Sequences will be right padded (and possibly truncated)."},
     )
 
 
-def _tokenize_fn(
-    strings: Sequence[str], tokenizer: transformers.PreTrainedTokenizer
-) -> Dict:
-   
+def _tokenize_fn(strings: Sequence[str], tokenizer: transformers.PreTrainedTokenizer) -> Dict:
+
     tokenized_list = [
         tokenizer(
             text,
@@ -116,8 +92,7 @@ def _tokenize_fn(
     ]
     input_ids = labels = [tokenized.input_ids[0] for tokenized in tokenized_list]
     input_ids_lens = labels_lens = [
-        tokenized.input_ids.ne(tokenizer.pad_token_id).sum().item()
-        for tokenized in tokenized_list
+        tokenized.input_ids.ne(tokenizer.pad_token_id).sum().item() for tokenized in tokenized_list
     ]
     return dict(
         input_ids=input_ids,
@@ -134,9 +109,7 @@ def preprocess(
 ) -> Dict:
     """Preprocess the data by tokenizing."""
     examples = [s + t for s, t in zip(sources, targets)]
-    examples_tokenized, sources_tokenized = [
-        _tokenize_fn(strings, tokenizer) for strings in (examples, sources)
-    ]
+    examples_tokenized, sources_tokenized = [_tokenize_fn(strings, tokenizer) for strings in (examples, sources)]
     input_ids = examples_tokenized["input_ids"]
     labels = copy.deepcopy(input_ids)
     for label, source_len in zip(labels, sources_tokenized["input_ids_lens"]):
@@ -164,9 +137,7 @@ class SupervisedDataset(Dataset):
 
         logging.warning("Formatting inputs...")
         sources = [f"{example['instruction']} " for example in list_data_dict]
-        targets = [
-            f"{example['output']} {tokenizer.eos_token}" for example in list_data_dict
-        ]
+        targets = [f"{example['output']} {tokenizer.eos_token}" for example in list_data_dict]
 
         logging.warning("Tokenizing inputs... This may take some time...")
         data_dict = preprocess(sources, targets, tokenizer)
@@ -188,17 +159,13 @@ class DataCollatorForSupervisedDataset(object):
     tokenizer: transformers.PreTrainedTokenizer
 
     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
-        input_ids, labels = tuple(
-            [instance[key] for instance in instances] for key in ("input_ids", "labels")
-        )
+        input_ids, labels = tuple([instance[key] for instance in instances] for key in ("input_ids", "labels"))
         input_ids = torch.nn.utils.rnn.pad_sequence(
             input_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id
         )
-        labels = torch.nn.utils.rnn.pad_sequence(
-            labels, batch_first=True, padding_value=IGNORE_INDEX
-        )
+        labels = torch.nn.utils.rnn.pad_sequence(labels, batch_first=True, padding_value=IGNORE_INDEX)
         attention_mask = input_ids.ne(self.tokenizer.pad_token_id)
-        attention_mask[:, -1] = True # PAD = EOS, so we do this so that final token is considered for attention
+        attention_mask[:, -1] = True  # PAD = EOS, so we do this so that final token is considered for attention
         return dict(
             input_ids=input_ids,
             labels=labels,
@@ -206,34 +173,24 @@ class DataCollatorForSupervisedDataset(object):
         )
 
 
-def make_supervised_data_module(
-    tokenizer: transformers.PreTrainedTokenizer, data_args
-) -> Dict:
+def make_supervised_data_module(tokenizer: transformers.PreTrainedTokenizer, data_args) -> Dict:
     """Make dataset and collator for supervised fine-tuning."""
-    train_dataset = SupervisedDataset(
-        tokenizer=tokenizer, data_path=data_args.data_path
-    )
+    train_dataset = SupervisedDataset(tokenizer=tokenizer, data_path=data_args.data_path)
 
-    clean_eval_dataset = SupervisedDataset(
-        tokenizer=tokenizer, data_path=data_args.clean_validation_data_path
-    )
+    clean_eval_dataset = SupervisedDataset(tokenizer=tokenizer, data_path=data_args.clean_validation_data_path)
 
     # trans_eval_dataset = SupervisedDataset(
     #     tokenizer=tokenizer, data_path=data_args.trans_validation_data_path
     # )
 
     # eval_dataset = {'ASR_Eval':clean_eval_dataset,'MT_Eval':trans_eval_dataset}
-    
+
     data_collator = DataCollatorForSupervisedDataset(tokenizer=tokenizer)
-    return dict(
-        train_dataset=train_dataset, eval_dataset=clean_eval_dataset, data_collator=data_collator
-    )
+    return dict(train_dataset=train_dataset, eval_dataset=clean_eval_dataset, data_collator=data_collator)
 
 
 def train():
-    parser = transformers.HfArgumentParser(
-        (ModelArguments, DataArguments, TrainingArguments)
-    )
+    parser = transformers.HfArgumentParser((ModelArguments, DataArguments, TrainingArguments))
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
     model = transformers.AutoModelForCausalLM.from_pretrained(
         model_args.model_name_or_path,
@@ -251,26 +208,24 @@ def train():
 
     print(len(tokenizer))
 
-    
     if model_args.train_lora:
         print(model_args.lora_target_modules)
         print("~~~~~~~~~~~~~~~~~~~~~~~~ Training With LoRA ~~~~~~~~~~~~~~~~~~~~~~~~")
         if hasattr(model, "enable_input_require_grads"):
             model.enable_input_require_grads()
         else:
+
             def make_inputs_require_grad(module, input, output):
                 output.requires_grad_(True)
 
             model.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
 
-
-        if os.path.isfile(training_args.output_dir+"/adapter_model.bin") and training_args.resume_from_checkpoint=='True':
+        if (
+            os.path.isfile(training_args.output_dir + "/adapter_model.bin")
+            and training_args.resume_from_checkpoint == "True"
+        ):
             print("~~~~~~~~~~~~~~~~~~~~~~~~ Loading LoRA Checkpoint ~~~~~~~~~~~~~~~~~~~~~~~~")
-            model = PeftModel.from_pretrained(
-                                  model, 
-                                  training_args.output_dir,
-                                  is_trainable=True
-                                  )
+            model = PeftModel.from_pretrained(model, training_args.output_dir, is_trainable=True)
             model.print_trainable_parameters()
 
         else:
@@ -282,44 +237,39 @@ def train():
                 lora_dropout=model_args.lora_dropout,
                 bias=model_args.lora_bias,
                 task_type="CAUSAL_LM",
-                modules_to_save = ["lm_head","embed_tokens"]
+                modules_to_save=["lm_head", "embed_tokens"],
             )
 
-        
             model = get_peft_model(model, config)
             model.print_trainable_parameters()
 
-    tokenizer.pad_token_id = tokenizer.convert_tokens_to_ids('<PAD>')
-    tokenizer.pad_token = '<PAD>'
+    tokenizer.pad_token_id = tokenizer.convert_tokens_to_ids("<PAD>")
+    tokenizer.pad_token = "<PAD>"
     model.config.pad_token_id = tokenizer.pad_token_id
     model.config.eos_token_id = tokenizer.eos_token_id
 
-    print("Vocab size= ",len(tokenizer))
+    print("Vocab size= ", len(tokenizer))
     print("Padding token ID: ", tokenizer.pad_token_id)
-    print("Padding token: ",tokenizer.pad_token)
-
+    print("Padding token: ", tokenizer.pad_token)
 
     data_path = os.path.join(training_args.output_dir, "data")
     if os.path.isfile(data_path):
         with open(data_path, "rb") as f:
             data_module = pickle.load(f)
     else:
-        data_module = make_supervised_data_module(
-            tokenizer=tokenizer, data_args=data_args
-        )
+        data_module = make_supervised_data_module(tokenizer=tokenizer, data_args=data_args)
         if not os.path.exists(training_args.output_dir):
             os.mkdir(training_args.output_dir)
         with open(data_path, "wb") as f:
             pickle.dump(data_module, f)
 
-    
     trainer = Trainer(
-        model=model, 
-        tokenizer=tokenizer, 
-        args=training_args, 
-        train_dataset=data_module['train_dataset'],
-        eval_dataset=data_module['eval_dataset'],
-        data_collator=data_module['data_collator']
+        model=model,
+        tokenizer=tokenizer,
+        args=training_args,
+        train_dataset=data_module["train_dataset"],
+        eval_dataset=data_module["eval_dataset"],
+        data_collator=data_module["data_collator"],
     )
 
     if torch.__version__ >= "2" and sys.platform != "win32":
@@ -337,7 +287,7 @@ def train():
     # print(output)
     # print(tokenizer.batch_decode(output[:, input_length:],skip_special_tokens=True))
     # quit()
-    
+
     # trainer.train('/mnt/scratch-artemis/kshitij/LLAMA/continued_pretraining/spgi_cont_eval/only_asr_intruct_tune/one-epoch-checkpoint-1130')
     trainer.train()
 
@@ -345,9 +295,7 @@ def train():
         model.save_pretrained(training_args.output_dir)
         folders = next(os.walk(training_args.output_dir))[1]
 
-        matching_folders = [
-            folder for folder in folders if folder.startswith("checkpoint-")
-        ]
+        matching_folders = [folder for folder in folders if folder.startswith("checkpoint-")]
 
         match = re.search(r"\d+", matching_folders[0])
         number = match.group()
@@ -366,7 +314,6 @@ def train():
         else:
             pass
 
+
 if __name__ == "__main__":
     train()
-    
-
