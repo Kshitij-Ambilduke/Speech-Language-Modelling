@@ -9,17 +9,23 @@ import sys
 data = sys.argv[1]
 data_path = sys.argv[2]
 normalizer = BasicTextNormalizer()
-#tokenizer_path = "/mnt/data-artemis/duarte/tower_speech/tinyllama_10B_hf_ckpts/tinyllama-1b/4500"
 tokenizer_path="/mnt/scratch-artemis/sonal/tower_speech/data/tokenizer/"
-sampling_params=SamplingParams(stop=['<\s>','\n', "\\n"], max_tokens=128, temperature=0) #,max-num-seqs==1)
+sampling_params=SamplingParams(stop=['<\s>','\n', "\\n"], max_tokens=128, temperature=0) 
+
 #model_path = "/mnt/data-artemis/duarte/tower_speech/tower-base-6B-5to1/llama2-7b/1500"
 #model_path ="/mnt/data-artemis/duarte/tower_speech/tower-base-8B-5to3/1500"
 #model_path="/mnt/data-artemis/duarte/tower_speech/tower-base-6B-5to1/llama2-7b/1500"
-model_path="/mnt/data-artemis/duarte/tower_speech/tower-base-6B-5to1/llama2-7b/3000"
+#model_path="/mnt/data-artemis/duarte/tower_speech/tower-base-6B-5to1/llama2-7b/3000"
 #model_path="/mnt/data-artemis/duarte/tower_speech/tower-base-6B-5to1/llama2-7b/5000"
 #model_path="/mnt/data-artemis/duarte/tower_speech/tower-base-8B-5to3/llama2-7b/3000"
 #model_path="/mnt/data-artemis/duarte/tower_speech/ls-test/llama2-7b/1500"
 #model_path="/mnt/data-artemis/duarte/tower_speech/ls-test-3k-steps-hf-ckpts/llama2-7b/3000"
+
+
+#Tower base model
+model_path="/mnt/scratch-artemis/kshitij/LLAMA/latest_megatron_codebase/tower-base-artifacts/extended_model"
+
+
 out_root = "/mnt/scratch-artemis/sonal/tower_speech/evaluation/results/ASR/"
 #prepare into prompt list
 def read_data(data_path):
