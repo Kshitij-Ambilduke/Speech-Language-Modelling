@@ -11,13 +11,13 @@ We use a combination of resources to create our data mixture of varing proportio
 
 We report various mixtures as follows:
 
-*TowerSpeech 6B: We use Tower 7B as our base model and use 5B tokens of speech data and 1B tokens of text data. 
-*LlamaSpeech 6B: We use Llama-2 7B as our base model with the same data mixture. 
+* TowerSpeech 6B: We use Tower 7B as our base model and use 5B tokens of speech data and 1B tokens of text data. 
+* LlamaSpeech 6B: We use Llama-2 7B as our base model with the same data mixture. 
 
 Preliminary bilingual (En, De) models on a smaller scale include:
 
-*TinyLlama 10B: We use TinyLlama 1B as our base model with 5B tokens of speech data and 5B tokens of monolingual and parallel text in English and German. We utilise a subsplit of Tower here as well.
-*Llama-2 10B: We use Llama-2 as our base model with 5B tokens of speech data and 5B tokens of text.
+* TinyLlama 10B: We use TinyLlama 1B as our base model with 5B tokens of speech data and 5B tokens of monolingual and parallel text in English and German. We utilise a subsplit of Tower here as well.
+* Llama-2 10B: We use Llama-2 as our base model with 5B tokens of speech data and 5B tokens of text.
 
 ## Training 
 
